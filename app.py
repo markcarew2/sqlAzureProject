@@ -3,72 +3,157 @@ import pyodbc, struct
 from azure import identity
 
 from typing import Union
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from fastapi.responses import PlainTextResponse
+import json
 
 class Person(BaseModel):
     first_name:str
     last_name:Union[str,None]=None
-
-
-
 
 connection_string = 'Driver={ODBC Driver 18 for SQL Server};Server=tcp:slippyandproud.database.windows.net,1433;Database=MySQLPractice;Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30'
 
 
 app = FastAPI()
 
-@app.get("/")
+@app.get("/", response_class=PlainTextResponse)
 def root():
-    print("Root of Person API")
-    try:
-        conn = get_conn()
-        cursor = conn.cursor()
+    print("Root of Business ")
 
-        # Table should be created ahead of time in production app.
-        cursor.execute("""
-            CREATE TABLE Persons (
-                ID int NOT NULL PRIMARY KEY IDENTITY,
-                FirstName varchar(255),
-                LastName varchar(255)
-            );
-        """)
+    return "This is the test API for New York Business Improvement District data stored on my AzureSQL server (pulled from https://data.world/city-of-ny/).\n\
+It can return specific views of the BID data sets.\n\
+I cleaned the data so that the names of the BIDs lined up across years, in the original data, the names would change between years making that column less useful as a key\n\
+/CLEAN gives a short description of the different views available."
 
-        conn.commit()
-    except Exception as e:
-        # Table may already exist
-        print(e)
-    return "Person API"
+@app.get("/CLEAN", response_class=PlainTextResponse)
+def cleanData():
+    print("root of clean data sets")
+    return "/CLEAN/TABLE/2016, /CLEAN/TABLE/2017. /CLEAN/TABLE/2018. /CLEAN/TABLE/2019 return the full tables for those years\n\
+/CLEAN/BID/<Name of BID> returns data for that BID across all years, type in spaces as %20\n\
+/CLEAN/BIDS returns the names of BIDs"
 
-@app.get("/all")
-def get_persons():
-    rows = []
+@app.get("/CLEAN/COLUMNS")
+def cleanColumns():
+    print("Returning list of COlumns")
     with get_conn() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM Persons")
+        cursor.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = N'CLEAN2016'")
+        columns = '{"columns":["'
+        colList = []
+        cols = cursor.fetchall()
+        for col in cols:
+            colList.append(col[0])
+        colString = '", "'.join(colList)
+        columns = columns + colString + '"]}'
+        print(columns)
+    jsonColumn = json.loads(columns)
+    #print(jsonColumn)
+    return jsonColumn
+    
 
-        for row in cursor.fetchall():
-            print(row.FirstName, row.LastName)
-            rows.append(f"{row.ID}, {row.FirstName}, {row.LastName}")
-    return rows
+@app.get("/CLEAN/TABLE/{year}")
+def getYear(year: str):
+    with get_conn() as conn:
+        
+        cursor = conn.cursor()
+        if year not in ["2016","2017","2018","2019"]:
+            raise HTTPException(status_code=404,
+            detail="404 Error: Year not in database")
 
-@app.get("/person/{person_id}")
-def get_person(person_id: int):
+
+        cursor.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = N'CLEAN{year}'".format(year=year))
+        
+        columns = '{"columns":["'
+        colList = []
+        cols = cursor.fetchall()
+        for col in cols:
+            colList.append(col[0])
+        colString = '", "'.join(colList)
+        columns = columns + colString + '"],'
+        
+        tableString = columns + '"data":['
+        
+        cursor.execute("SELECT * FROM CLEAN{year}".format(year=year))
+
+        table = cursor.fetchall()
+
+        for row in table:
+            tableString+='["'
+            rowString = '", "'.join(row)
+            tableString = tableString + rowString + '"],'
+        tableString=tableString[:-1] + ']}'
+
+        #print(tableString[40230:40250])
+        tableString = json.loads(tableString)
+        #print(tableString)
+
+       # for row in table:
+           # for point 
+    return tableString
+
+@app.get("/CLEAN/BID/{bid}")
+def get_bid(bid: str):
+    bid = bid.replace("%20", " ")
+    
     with get_conn() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM Persons WHERE ID = ?", person_id)
 
-        row = cursor.fetchone()
-        return f"{row.ID}, {row.FirstName}, {row.LastName}"
+        cursor.execute("SELECT BIDName FROM CLEAN2019")
+        colList = []
+        cols = cursor.fetchall()
+        for col in cols:
+            colList.append(col[0])
 
-@app.post("/person")
-def create_person(item: Person):
+
+        if bid not in colList:
+            raise HTTPException(status_code=404, detail="404 Error no such BID")
+       
+        cursor.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = N'CLEAN2016'")
+       
+        
+        columns = '{"columns":["'
+        colList = []
+        cols = cursor.fetchall()
+        for col in cols:
+            colList.append(col[0])
+        colString = '", "'.join(colList)
+        columns = columns + colString + '"],'
+        
+        tableString = columns + '"index":["2016","2017","2018","2019"], "data":['
+
+        bidData = []
+        for ele in ['2016','2017','2018','2019']:
+           # print("SELECT * FROM CLEAN{yeary} WHERE BIDName = {biddy}".format(yeary = ele, biddy = bid))
+            cursor.execute("SELECT * FROM CLEAN{yeary} WHERE BIDName = '{biddy}'".format(yeary = ele, biddy = bid))
+            bidData.append(cursor.fetchone())
+        #print(bidData)
+        for row in bidData:
+            tableString+='["'
+            rowString = '", "'.join(row)
+            tableString = tableString + rowString + '"],'
+        tableString=tableString[:-1] + "]}"
+        tableString = json.loads(tableString)
+    return tableString
+
+@app.get("/CLEAN/BIDS")
+def get_bids():
+    
     with get_conn() as conn:
         cursor = conn.cursor()
-        cursor.execute(f"INSERT INTO Persons (FirstName, LastName) VALUES (?, ?)", item.first_name, item.last_name)
-        conn.commit()
 
-    return item
+        cursor.execute("SELECT BIDName FROM CLEAN2019")
+        columns = '{"BIDS":["'
+        colList = []
+        cols = cursor.fetchall()
+        for col in cols:
+            colList.append(col[0])
+        colString = '", "'.join(colList)
+        columns = columns + colString + '"]}'
+        
+    columns = json.loads(columns)
+
+    return columns
 
 
 
