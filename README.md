@@ -1,8 +1,12 @@
+See app.py for the API part of the project.
+
+See dataLoad.py for the data management part of the project.
+
 Data pulled from https://data.world/city-of-ny/gt6r-wh7c, cleaned using pandas, and uploaded to an Azure SQL Database. Data is about Business improvement districts in New York City.
 
-The API written in app.py has been deployed as an azure app connected to the relevant Azure SQL Database. 
+The API written in app.py was deployed as an azure app connected to the relevant Azure SQL Database. My trial subscription to azure ended so the database and site don't exist anymore.
 
-The root of the API is running here: https://bidsqldata1.azurewebsites.net/
+The root of the API was running here: https://bidsqldata1.azurewebsites.net/
 
 Endpoints include:
 https://bidsqldata1.azurewebsites.net/CLEAN/TABLE/2016
